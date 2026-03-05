@@ -8,8 +8,9 @@
 import UIKit
 
 protocol CatAPIClient {
-    func fetchBreeds(completion: @escaping (Result<[CatBreed], Error>) -> Void)
+    func fetchBreeds(page: Int, limit: Int, completion: @escaping (Result<[CatBreed], Error>) -> Void)
     func fetchCatImage(breedId: String, completion: @escaping (Result<UIImage, Error>) -> Void)
+    
 }
 
 

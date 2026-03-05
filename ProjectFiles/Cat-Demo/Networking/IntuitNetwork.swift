@@ -37,46 +37,63 @@ class Network {
     /// FetchCatBreeds - retrieve a list of cat breeds from The Cat API
     ///
     /// - Parameter completion: Closure that returns CatBreed on success, an Error on failure
-    class func fetchCatBreeds(completion: @escaping (Swift.Result<[CatBreed], Error>) -> Void) {
+    class func fetchCatBreeds(page: Int, limit: Int, completion: @escaping (Swift.Result<[CatBreed], Error>) -> Void) {
         
         func finish(_ result: Result<[CatBreed], Error>) {
             DispatchQueue.main.async { completion(result) }
         }
         
         /// Create the URL for the request
-        guard let url = URL(string: "https://api.thecatapi.com/v1/breeds") else {
-            let error = NSError(domain: "Network.fetchCats", code: NetworkError.badUrl.rawValue, userInfo: nil)
-            return completion(Result.failure(error))
+//        guard let url = URL(string: "https://api.thecatapi.com/v1/breeds") else {
+//            let error = NSError(domain: "Network.fetchCats", code: NetworkError.badUrl.rawValue, userInfo: nil)
+//            return completion(Result.failure(error))
+//        }
+        
+        guard var components = URLComponents(string: "https://api.thecatapi.com/v1/breeds") else {
+            return finish(.failure(URLError(.badURL)))
+        }
+        
+        
+        
+//        https://api.thecatapi.com/v1/breeds?limit=10&page=0
+        
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "page", value: "\(page)")
+            
+        ]
+        
+        guard let url = components.url else {
+            
+            return finish(.failure(URLError(.badURL)))
+        
         }
         
         /// Start a data task for the URL
-        URLSession.shared.dataTask(with: url) { (data, _, error) in
-            /// Check against errors
-            guard error == nil else {
-                let error = NSError(domain: "Network.fetchCats", code: NetworkError.responseError.rawValue, userInfo: nil)
-                return completion(Result.failure(error))
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            
+            if let error {
+                return finish(.failure(error))
             }
             
-            /// Check for non-nil response data
-            guard let data = data else {
-                let error = NSError(domain: "Network.fetchCats", code: NetworkError.responseNoData.rawValue, userInfo: nil)
-                return completion(Result.failure(error))
+            guard let data else {
+                return finish(.failure(APIError.noData))
+            }
+            
+            switch validateHTTP(response) {
+            case .failure(let err):
+                return finish(.failure(err))
+            case .success:
+                break
             }
             
             do {
-                let breeds: [CatBreed]
-                
-                /// Decode the JSON response into a CatBreed object array
-                breeds = try JSONDecoder().decode([CatBreed].self, from: data)
-                
-                /// Return the data
-                completion(.success(breeds))
-
+                let breeds = try JSONDecoder().decode([CatBreed].self, from: data)
+                finish(.success(breeds))
             } catch {
-                /// Unable to decode the response
-                let error = NSError(domain: "Network.decode", code: NetworkError.decodeError.rawValue, userInfo: nil)
-                return completion(Result.failure(error))
+                finish(.failure(error))
             }
+            
         }.resume()
     }
     
@@ -94,6 +111,7 @@ class Network {
         }
 
         let (data, response) = try await URLSession.shared.data(from: url)
+        
         
         switch validateHTTP(response) {
         case .failure(let err): throw err
@@ -121,16 +139,25 @@ class Network {
 
         let (data, response) = try await URLSession.shared.data(from: url)
         
+//        print("Calling from Network,\(Thread.current)")
+
         switch validateHTTP(response) {
         case .failure(let err): throw err
         case .success: break
         }
 
+//        print("Before UIImage(data:). isMainThread=\(Thread.isMainThread) thread=\(Thread.current)")
+        
         guard let image = UIImage(data: data) else {
             throw URLError(.cannotDecodeContentData)
         }
 
+//        Command: po Thread.isMainThread
+        
+//        print("After UIImage(data:). isMainThread=\(Thread.isMainThread) thread=\(Thread.current)")
+        
         urlImageCache.setObject(image, forKey: urlString as NSString)
+        
         return image
     }
     
@@ -168,15 +195,12 @@ class Network {
             do {
                 let catDetails = try JSONDecoder().decode([CatDetails].self, from: data)
                 
-                guard let first = catDetails.first,
-                      let urlString = first.url,
-                      let catImageUrl = URL(string: urlString) else {
+                guard let urlString = catDetails.first?.url else {
                     return finish(.failure(CatImageError.noImageAvailable))
                 }
 
-                guard let catDetailImageUrl = catDetails.first?.url,
-                      let catImageUrl = URL(string: catDetailImageUrl) else {
-                    let error = NSError(domain: "Network.fetchCatDetails", code: NetworkError.responseNoData.rawValue, userInfo: nil)
+                guard let catImageUrl = URL(string: urlString) else {
+                    let error = NSError(domain: "Network.fetchCatDetails", code: NetworkError.badUrl.rawValue, userInfo: nil)
                     return finish(.failure(error))
                 }
 

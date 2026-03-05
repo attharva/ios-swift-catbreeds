@@ -55,10 +55,3 @@ extension ViewController {
         view.layer.add(glow, forKey: "glow")
     }
 }
-
-// MARK: - UISearchResultsUpdating
-extension ViewController: UISearchResultsUpdating {
-    func updateSearchResults(for searchController: UISearchController) {
-        applyFilter(raw: searchController.searchBar.text ?? "")
-    }
-}
