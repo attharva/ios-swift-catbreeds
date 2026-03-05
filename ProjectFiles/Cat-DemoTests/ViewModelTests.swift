@@ -11,77 +11,142 @@ import UIKit
 
 final class ViewModelTests: XCTestCase {
 
-    final class MockCatAPIClient: CatAPIClient {
-        var breedsResult: Result<[CatBreed], Error> = .success([])
-        var imageResult: Result<UIImage, Error> = .failure(NSError(domain: "mock", code: 1))
+    // MARK: - Mock API
 
-        func fetchBreeds(completion: @escaping (Result<[CatBreed], Error>) -> Void) {
-            completion(breedsResult)
+    final class MockCatAPIClient: CatAPIClient {
+
+        var breedsByPage: [Int: Result<[CatBreed], Error>] = [:]
+        var imageResult: Result<UIImage, Error> =
+            .failure(NSError(domain: "mock", code: 1))
+
+        func fetchBreeds(page: Int,
+                         limit: Int,
+                         completion: @escaping (Result<[CatBreed], Error>) -> Void) {
+
+            if let result = breedsByPage[page] {
+                completion(result)
+            } else {
+                completion(.success([]))
+            }
         }
 
-        func fetchCatImage(breedId: String, completion: @escaping (Result<UIImage, Error>) -> Void) {
+        func fetchCatImage(breedId: String,
+                           completion: @escaping (Result<UIImage, Error>) -> Void) {
             completion(imageResult)
         }
     }
 
-    final class DelegateSpy: CatDataDelegate {
-        
-        func errorOccurred(_ message: String) {
-            print("error", message)
-        }
-        
-        var onBreedsChanged: (() -> Void)?
-        var onImageChanged: (() -> Void)?
+    // MARK: - Delegate Spy
 
-        func breedsChangedNotification() { onBreedsChanged?() }
-        func imageChangedNotification() { onImageChanged?() }
+    final class DelegateSpy: CatDataDelegate {
+
+        var breedsChangedCalled = false
+
+        func breedsChangedNotification() {
+            breedsChangedCalled = true
+        }
+
+        func imageChangedNotification() { }
+
+        func errorOccurred(_ message: String) { }
     }
 
-    func testGetBreedsUpdatesCatBreeds() {
-        let mock = MockCatAPIClient()
-        mock.breedsResult = .success([
-            CatBreed(
-                id: "1",
-                name: "Abyssinian",
-                description: "desc",
-                temperament: nil,
-                life_span: nil,
-                wikipedia_url: nil,
-                experimental: nil,
-                hairless: nil,
-                indoor: nil,
-                lap: nil,
-                hypoallergenic: nil,
-                rare: nil,
-                natural: nil,
-                adaptability: nil,
-                affection_level: nil,
-                child_friendly: nil,
-                dog_friendly: nil,
-                energy_level: nil,
-                grooming: nil,
-                health_issues: nil,
-                intelligence: nil,
-                shedding_level: nil,
-                social_needs: nil,
-                stranger_friendly: nil,
-                vocalisation: nil,
-                reference_image_id: nil,
-                image: nil
-            )
+    // MARK: - Helper
+
+    private func makeBreed(id: String, name: String) -> CatBreed {
+        CatBreed(
+            id: id,
+            name: name,
+            description: "desc",
+            temperament: nil,
+            life_span: nil,
+            wikipedia_url: nil,
+            experimental: nil,
+            hairless: nil,
+            indoor: nil,
+            lap: nil,
+            hypoallergenic: nil,
+            rare: nil,
+            natural: nil,
+            adaptability: nil,
+            affection_level: nil,
+            child_friendly: nil,
+            dog_friendly: nil,
+            energy_level: nil,
+            grooming: nil,
+            health_issues: nil,
+            intelligence: nil,
+            shedding_level: nil,
+            social_needs: nil,
+            stranger_friendly: nil,
+            vocalisation: nil,
+            reference_image_id: nil,
+            image: nil
+        )
+    }
+
+    // MARK: - Tests
+
+    func testOnViewDidLoadLoadsFirstPage() {
+
+        let mockAPI = MockCatAPIClient()
+        mockAPI.breedsByPage[0] = .success([
+            makeBreed(id: "1", name: "Abyssinian"),
+            makeBreed(id: "2", name: "Bengal")
         ])
 
-        let vm = ViewModel(api: mock)
-
-        let exp = expectation(description: "breedsChangedNotification called")
+        let vm = ViewModel(api: mockAPI)
         let spy = DelegateSpy()
-        spy.onBreedsChanged = { exp.fulfill() }
         vm.catDataDelegate = spy
 
-        vm.getBreeds()
-        waitForExpectations(timeout: 1.0)
+        vm.onViewDidLoad()
 
-        XCTAssertEqual(vm.catBreeds?.count, 1)
-        XCTAssertEqual(vm.catBreeds?.first?.name, "Abyssinian")
+        XCTAssertTrue(spy.breedsChangedCalled)
+        XCTAssertEqual(vm.numberOfRows, 2)
+        XCTAssertEqual(vm.breed(at: 0).name, "Abyssinian")
+    }
+
+    func testPaginationLoadsSecondPage() {
+
+        let mockAPI = MockCatAPIClient()
+
+        mockAPI.breedsByPage[0] = .success(
+            (0..<10).map { makeBreed(id: "\($0)", name: "Breed\($0)") }
+        )
+
+        mockAPI.breedsByPage[1] = .success(
+            (10..<20).map { makeBreed(id: "\($0)", name: "Breed\($0)") }
+        )
+
+        let vm = ViewModel(api: mockAPI)
+        let spy = DelegateSpy()
+        vm.catDataDelegate = spy
+
+        vm.onViewDidLoad()
+
+        XCTAssertEqual(vm.numberOfRows, 10)
+
+        // Simulate scrolling near bottom
+        vm.onWillDisplayRow(9)
+
+        XCTAssertEqual(vm.numberOfRows, 20)
+    }
+
+    func testSearchFiltersBreedsCorrectly() {
+
+        let mockAPI = MockCatAPIClient()
+        mockAPI.breedsByPage[0] = .success([
+            makeBreed(id: "1", name: "Abyssinian"),
+            makeBreed(id: "2", name: "Bengal"),
+            makeBreed(id: "3", name: "Birman")
+        ])
+
+        let vm = ViewModel(api: mockAPI)
+        vm.onViewDidLoad()
+
+        vm.onSearchTextChanged("Bi")
+
+        XCTAssertEqual(vm.numberOfRows, 1)
+        XCTAssertEqual(vm.breed(at: 0).name, "Birman")
     }
 }
